@@ -1,2 +1,2 @@
-# foryourschool
-good games for school
+# GAMES
+Good 3D games, some AI code, just fixed some problems
