@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: white; margin: 0; padding: 10px; display: flex; flex-direction: column; height: 94vh; overflow: hidden; }
+        
+        /* Lock Screen Styles */
+        #lock-screen { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #000; z-index: 9999; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+        }
+        #lock-screen h2 { color: #00d4ff; margin-bottom: 20px; letter-spacing: 2px; text-transform: uppercase; }
+
+        /* Main Chat Layout */
+        #main-chat { display: none; flex-direction: column; height: 100%; }
+
+        #chat { flex-grow: 1; background: #1e1e1e; border-radius: 12px; padding: 15px; overflow-y: auto; border: 1px solid #333; margin-bottom: 10px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .controls { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        input, button { padding: 10px; border-radius: 6px; border: 1px solid #444; background: #262626; color: white; outline: none; }
+        button { background: #007bff; cursor: pointer; border: none; font-weight: 600; transition: 0.2s; }
+        button:hover { background: #0056b3; }
+        
+        .msg { background: #2d2d2d; padding: 10px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid #007bff; word-wrap: break-word; }
+        .msg b { color: #00d4ff; font-size: 0.8em; display: block; margin-bottom: 3px; }
+        
+        #room-panel { display: none; background: #252525; padding: 15px; border-radius: 10px; border: 1px solid #007bff; margin-bottom: 10px; }
+        .room-input { width: 120px; margin-right: 5px; }
+        #status { font-style: italic; color: #888; margin-bottom: 5px; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+
+    <div id="lock-screen">
+        <h2>SECURE ACCESS</h2>
+        <input type="text" id="accessKey" placeholder="Enter Secret Key..." style="width: 250px; text-align: center; border-color: #00d4ff;">
+        <button onclick="verifyKey()" style="margin-top: 15px; background: #28a745; width: 270px;">UNLOCK CHAT</button>
+        <p style="color: #555; font-size: 0.8em; margin-top: 20px;">Hint: Complete the school verification to get the key.</p>
+    </div>
+
+    <div id="main-chat">
+        <div class="controls">
+            <input type="text" id="username" placeholder="Nickname" style="width: 100px;" value="Guest">
+            <button onclick="toggleRoomPanel()">🔑 Private Room</button>
+            <button onclick="goGlobal()" style="background: #444;">🌐 Global Chat</button>
+        </div>
+
+        <div id="room-panel">
+            <input type="text" id="roomName" class="room-input" placeholder="Room Name">
+            <input type="password" id="roomPass" class="room-input" placeholder="Password">
+            <button onclick="joinRoom()">Join / Create</button>
+        </div>
+
+        <div id="status">Current Room: Global</div>
+        <div id="chat"></div>
+
+        <div style="display: flex; gap: 8px;">
+            <input type="text" id="text" placeholder="Type a message..." style="flex-grow: 1;" onkeypress="if(event.key==='Enter') send()">
+            <button onclick="send()">SEND 🚀</button>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyA3IGkyxca5LvJsKiVCs-_O0b-rSmOrVN0",
+            authDomain: "schoolchat-1bf96.firebaseapp.com",
+            databaseURL: "https://schoolchat-1bf96-default-rtdb.firebaseio.com",
+            projectId: "schoolchat-1bf96",
+            storageBucket: "schoolchat-1bf96.firebasestorage.app",
+            messagingSenderId: "858584964364",
+            appId: "1:858584964364:web:1ec68fa39178b8ca3f7d29"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // The Access Key from your test page
+        const SECRET_KEY = "yDEcIv3CvUXRvyEOMRTtXw==";
+
+        function verifyKey() {
+            const input = document.getElementById('accessKey').value;
+            if(input === SECRET_KEY) {
+                document.getElementById('lock-screen').style.display = "none";
+                document.getElementById('main-chat').style.display = "flex";
+                load(); 
+            } else {
+                alert("ACCESS DENIED: Invalid Key!");
+            }
+        }
+
+        let currentRoom = "global";
+        const badWords = /fuck|shit|bitch|asshole|хуй|пизд|еблан|сука|бля|говно/gi; 
+
+        function toggleRoomPanel() {
+            const panel = document.getElementById('room-panel');
+            panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
+        }
+
+        function send() {
+            let u = document.getElementById('username').value;
+            let t = document.getElementById('text').value;
+            if(!t.trim()) return;
+            let path = currentRoom === "global" ? "global_chat" : "rooms/" + currentRoom + "/messages";
+            db.ref(path).push({ u: u, t: t.replace(badWords, "***") });
+            document.getElementById('text').value = "";
+        }
+
+        function load() {
+            let path = currentRoom === "global" ? "global_chat" : "rooms/" + currentRoom + "/messages";
+            db.ref(path).off();
+            db.ref(path).limitToLast(50).on('value', (snapshot) => {
+                let html = "";
+                snapshot.forEach(child => {
+                    let d = child.val();
+                    if(d.u && d.t) html += `<div class="msg"><b>${d.u}</b>${d.t}</div>`;
+                });
+                const chatBox = document.getElementById('chat');
+                chatBox.innerHTML = html;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            });
+        }
+
+        function joinRoom() {
+            let r = document.getElementById('roomName').value.trim();
+            let p = document.getElementById('roomPass').value.trim();
+            if(!r || !p) { alert("Enter Name and Pass!"); return; }
+            
+            db.ref('rooms/' + r + '/pass').once('value', (s) => {
+                if(s.exists() && s.val() !== p) {
+                    alert("Wrong password!");
+                } else {
+                    if(!s.exists()) db.ref('rooms/' + r + '/pass').set(p);
+                    currentRoom = r;
+                    document.getElementById('status').innerText = "Current Room: " + r;
+                    document.getElementById('room-panel').style.display = 'none';
+                    load();
+                }
+            });
+        }
+
+        function goGlobal() {
+            currentRoom = "global";
+            document.getElementById('status').innerText = "Current Room: Global";
+            load();
+        }
+    </script>
+</body>
+</html>
